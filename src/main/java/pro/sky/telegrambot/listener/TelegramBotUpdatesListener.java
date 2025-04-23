@@ -3,18 +3,15 @@ package pro.sky.telegrambot.listener;
 import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.UpdatesListener;
 import com.pengrad.telegrambot.model.Update;
-import com.pengrad.telegrambot.request.SendMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import pro.sky.telegrambot.model.NotificationTask;
 import pro.sky.telegrambot.service.NotificationTaskService;
+import pro.sky.telegrambot.service.SenderMessageService;
 
 import javax.annotation.PostConstruct;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -26,10 +23,12 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
 
     private final TelegramBot telegramBot;
     private final NotificationTaskService service;
+    private final SenderMessageService sender;
 
-    public TelegramBotUpdatesListener(TelegramBot telegramBot, NotificationTaskService service) {
+    public TelegramBotUpdatesListener(TelegramBot telegramBot, NotificationTaskService service, SenderMessageService sender) {
         this.telegramBot = telegramBot;
         this.service = service;
+        this.sender = sender;
     }
 
     private final Pattern pattern = Pattern.compile("(\\d{2}\\.\\d{2}\\.\\d{4}\\s\\d{2}:\\d{2})(\\s+)(.+)");
@@ -47,7 +46,7 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
 
             Matcher matcher = pattern.matcher(update.message().text());
             if (update != null && update.message().text().equals("/start")) {
-                sendMessage(update.message().chat().id(), "Приветствую тебя, друг, в Планировщик-Боте!");
+                sender.sendMessage(update.message().chat().id(), "Приветствую тебя, друг, в Планировщик-Боте!");
             } else if (matcher.matches()) {
                 String date = matcher.group(1);
                 String textNotification = matcher.group(3);
@@ -56,33 +55,15 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
                 LocalDateTime dateCurrent = LocalDateTime.now();
 
                 if (dateNotification.isBefore(dateCurrent)) {
-                    sendMessage(update.message().chat().id(), "Друг, ты указал дату меньше текущей! Я не могу сохранить твою напоминалку :(");
+                    sender.sendMessage(update.message().chat().id(), "Друг, ты указал дату меньше текущей! Я не могу сохранить твою напоминалку :(");
                 } else {
                     service.addNotification(update.message().chat().id(), textNotification, dateNotification);
-                    sendMessage(update.message().chat().id(), "Твоя напоминалка сохранена!");
+                    sender.sendMessage(update.message().chat().id(), "Твоя напоминалка сохранена!");
                 }
             } else {
-                sendMessage(update.message().chat().id(), "Друг, твоя напоминалка не соответствует заданному формату.");
+                sender.sendMessage(update.message().chat().id(), "Друг, твоя напоминалка не соответствует заданному формату.");
             }
         });
         return UpdatesListener.CONFIRMED_UPDATES_ALL;
-    }
-
-    // метод по отправке напоминалок в указанное время
-    @Scheduled(cron = "0 0/1 * * * *")
-    public void sendNotification() {
-        LocalDateTime dateCurrent = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES);
-        List<NotificationTask> allNotification = service.getNotifications(dateCurrent);
-        allNotification.forEach(notificationTask ->
-        {
-            String message = "Друг, у тебя запланировано - " + notificationTask.getTextNotification();
-            sendMessage(notificationTask.getIdChat(), message);
-        });
-    }
-
-    // метод по отправке исходящих сообщений
-    private void sendMessage(Long idChat, String textMessage) {
-        SendMessage message = new SendMessage(idChat, textMessage);
-        telegramBot.execute(message);
     }
 }
